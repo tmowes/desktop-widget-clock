@@ -1,17 +1,15 @@
 <!doctype html>
-<html>
+<html lang="pt-BR" suppressHydrationWarning>
 
 <head>
   <meta charset="UTF-8" />
-  <title>test</title>
+  <title>Desktop Clock</title>
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
 </head>
 
-<body
-  class="min-h-screen flex items-center justify-center overflow-hidden bg-cover select-none text-white antialiased [text-rendering:optimizeLegibility] leading-[1.6] font-[Inter,-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,Oxygen,Ubuntu,Cantarell,'Fira_Sans','Droid_Sans','Helvetica_Neue',sans-serif]"
-  style="background-image: url('./wavy-lines.svg')">
-  <div id="root" class="flex items-center justify-center flex-col mb-20"></div>
+<body class="min-h-screen bg-transparent overflow-hidden select-none [text-rendering:optimizeLegibility]">
+  <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

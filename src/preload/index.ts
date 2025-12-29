@@ -1,8 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-console.log('Running preload process code')
-console.log(import.meta.env)
-
 const api = {
   ping: (): void => {
     ipcRenderer.send('ping')

@@ -1,16 +1,52 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
+import Store from 'electron-store'
 import { IPC } from '~/shared/ipc'
 import { optimizer, setPackageAppUserModelId } from './utils'
 
-console.log('Running main process code')
-console.log(import.meta.env)
+interface WindowPosition {
+  x: number
+  y: number
+}
+
+interface StoreSchema {
+  windowPosition: WindowPosition | null
+}
+
+const store = new Store<StoreSchema>({
+  defaults: {
+    windowPosition: null,
+  },
+})
+
+const WINDOW_WIDTH = 156
+const WINDOW_HEIGHT = 48
+
+function getDefaultPosition(): WindowPosition {
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { height } = primaryDisplay.workAreaSize
+  return {
+    x: 0,
+    y: height - WINDOW_HEIGHT + 64,
+  }
+}
 
 function createWindow(): void {
+  const savedPosition = store.get('windowPosition')
+  const position = savedPosition || getDefaultPosition()
+
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: WINDOW_WIDTH,
+    height: WINDOW_HEIGHT,
+    x: position.x,
+    y: position.y,
     show: false,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    focusable: false,
     autoHideMenuBar: true,
     paintWhenInitiallyHidden: true,
     backgroundColor: '#00000000',
@@ -21,8 +57,15 @@ function createWindow(): void {
     },
   })
 
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.on('moved', () => {
+    const [x, y] = mainWindow.getPosition()
+    store.set('windowPosition', { x, y })
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

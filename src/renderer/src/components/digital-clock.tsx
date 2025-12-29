@@ -4,10 +4,7 @@ export function DigitalClock() {
   const [time, setTime] = useState(new Date())
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTime(new Date())
-    }, 1000)
-
+    const timer = setInterval(() => setTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
 
@@ -20,13 +17,7 @@ export function DigitalClock() {
 
   return (
     <div className="flex items-center justify-center w-full h-full">
-      <span
-        className="text-2xl font-semibold text-orange-600 tabular-nums tracking-wider antialiased"
-        style={{
-          textShadow: '2px 2px 4px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 0, 0, 0.5)',
-          fontFamily: 'Cascadia Code, monospace',
-        }}
-      >
+      <span className="text-2xl font-semibold text-orange-600 tabular-nums tracking-wider antialiased font-[Cascadia_Code] text-shadow-lg">
         {formatTime(time)}
       </span>
     </div>

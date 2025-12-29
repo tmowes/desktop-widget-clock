@@ -19,7 +19,7 @@ const store = new Store<StoreSchema>({
   },
 })
 
-const WINDOW_WIDTH = 156
+const WINDOW_WIDTH = 160
 const WINDOW_HEIGHT = 48
 
 function getDefaultPosition(): WindowPosition {
@@ -82,7 +82,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  setPackageAppUserModelId('com.electron')
+  setPackageAppUserModelId('com.piktew.desktopwidgetclock')
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })

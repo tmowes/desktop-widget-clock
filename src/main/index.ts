@@ -150,7 +150,7 @@ function updateTrayMenu(): void {
 }
 
 const WINDOW_WIDTH = 160
-const WINDOW_HEIGHT = 48
+const WINDOW_HEIGHT = 47
 
 const DESIRED_POSITION: WindowPosition = { x: 0, y: 1696 }
 
@@ -189,15 +189,43 @@ function resetWindowPosition(saveToStore = true): void {
 }
 
 /**
- * Força a janela para a posição desejada.
+ * Força o tamanho da janela para o tamanho original.
+ * O Windows 11 pode escalar a janela quando há mudanças de DPI/display.
+ */
+function forceDesiredSize(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+
+  const [currentWidth, currentHeight] = mainWindow.getSize()
+
+  if (currentWidth !== WINDOW_WIDTH || currentHeight !== WINDOW_HEIGHT) {
+    logWindowEvent('forcing-size', {
+      from: { width: currentWidth, height: currentHeight },
+      to: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+    })
+    mainWindow.setSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+  }
+}
+
+/**
+ * Força a janela para a posição e tamanho desejados.
  * No Windows 11, às vezes é necessário chamar setPosition múltiplas vezes
  * porque o sistema operacional tenta "ajudar" movendo a janela.
+ * Também restaura o tamanho que pode ser alterado por mudanças de DPI.
  */
 function forceDesiredPosition(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
 
   const desired = store.get('windowPosition') ?? DESIRED_POSITION
   const [currentX, currentY] = mainWindow.getPosition()
+  const [currentWidth, currentHeight] = mainWindow.getSize()
+
+  if (currentWidth !== WINDOW_WIDTH || currentHeight !== WINDOW_HEIGHT) {
+    logWindowEvent('forcing-size', {
+      from: { width: currentWidth, height: currentHeight },
+      to: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+    })
+    mainWindow.setSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+  }
 
   if (currentX !== desired.x || currentY !== desired.y) {
     logWindowEvent('forcing-position', { from: { x: currentX, y: currentY }, to: desired })
@@ -207,6 +235,7 @@ function forceDesiredPosition(): void {
 
     setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return
+      forceDesiredSize()
       const [x1, y1] = mainWindow.getPosition()
       if (x1 !== desired.x || y1 !== desired.y) {
         logWindowEvent('forcing-position-retry-1', { current: { x: x1, y: y1 }, desired })
@@ -217,6 +246,7 @@ function forceDesiredPosition(): void {
 
     setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return
+      forceDesiredSize()
       const [x2, y2] = mainWindow.getPosition()
       if (x2 !== desired.x || y2 !== desired.y) {
         logWindowEvent('forcing-position-retry-2', { current: { x: x2, y: y2 }, desired })
@@ -227,6 +257,7 @@ function forceDesiredPosition(): void {
 
     setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return
+      forceDesiredSize()
       const [x3, y3] = mainWindow.getPosition()
       if (x3 !== desired.x || y3 !== desired.y) {
         logWindowEvent('forcing-position-retry-3', { current: { x: x3, y: y3 }, desired })
@@ -346,6 +377,26 @@ function createWindow(): void {
     logWindowEvent('moved', { x, y })
   })
 
+  mainWindow.on('resize', () => {
+    if (!mainWindow) return
+    const [width, height] = mainWindow.getSize()
+    logWindowEvent('resize', {
+      width,
+      height,
+      expected: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+    })
+    if (width !== WINDOW_WIDTH || height !== WINDOW_HEIGHT) {
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return
+        logWindowEvent('forcing-size-after-resize', {
+          from: { width, height },
+          to: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+        })
+        mainWindow.setSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+      }, 50)
+    }
+  })
+
   mainWindow.on('closed', () => {
     logWindowEvent('closed')
     mainWindow = null
@@ -368,7 +419,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    logError('WINDOW', 'webContents:render-process-gone', details)
+    logError('WINDOW', 'webContents:render-process-gone', JSON.stringify(details))
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -455,50 +506,51 @@ app.whenReady().then(() => {
   logAppEvent('Tray created')
   createWindow()
 
-  setInterval(() => {
-    if (mainWindow) {
-      const [x, y] = mainWindow.getPosition()
-      const [w, h] = mainWindow.getSize()
-      const isVisible = mainWindow.isVisible()
-      const isMinimized = mainWindow.isMinimized()
-      const isDestroyed = mainWindow.isDestroyed()
-      const isOnTop = mainWindow.isAlwaysOnTop()
+  // setInterval(() => {
+  //   if (mainWindow) {
+  //     const [x, y] = mainWindow.getPosition()
+  //     const [w, h] = mainWindow.getSize()
+  //     const isVisible = mainWindow.isVisible()
+  //     const isMinimized = mainWindow.isMinimized()
+  //     const isDestroyed = mainWindow.isDestroyed()
+  //     const isOnTop = mainWindow.isAlwaysOnTop()
 
-      logWindowEvent('periodic-check', {
-        x,
-        y,
-        width: w,
-        height: h,
-        isVisible,
-        isMinimized,
-        isDestroyed,
-        isPositionVisible: isPositionVisible({ x, y }),
-        isOnTop,
-      })
+  //     logWindowEvent('periodic-check', {
+  //       x,
+  //       y,
+  //       width: w,
+  //       height: h,
+  //       isVisible,
+  //       isMinimized,
+  //       isDestroyed,
+  //       isPositionVisible: isPositionVisible({ x, y }),
+  //       isOnTop,
+  //     })
 
-      const desired = store.get('windowPosition') ?? DESIRED_POSITION
-      if (x !== desired.x || y !== desired.y) {
-        logWindowEvent('periodic-position-correction', {
-          current: { x, y },
-          desired,
-        })
-        forceDesiredPosition()
-      }
+  //     const desired = store.get('windowPosition') ?? DESIRED_POSITION
+  //     if (x !== desired.x || y !== desired.y) {
+  //       logWindowEvent('periodic-position-correction', {
+  //         current: { x, y },
+  //         desired,
+  //       })
+  //       forceDesiredPosition()
+  //     }
 
-      if (!isVisible && !isMinimized && !isDestroyed) {
-        logWindowEvent('auto-recover', { reason: 'Window was hidden unexpectedly' })
-        mainWindow.show()
-      }
-    } else {
-      logWindowEvent('periodic-check', { status: 'mainWindow is null' })
-    }
-  }, 60000) // Check every minute
+  //     if (!isVisible && !isMinimized && !isDestroyed) {
+  //       logWindowEvent('auto-recover', { reason: 'Window was hidden unexpectedly' })
+  //       mainWindow.show()
+  //     }
+  //   } else {
+  //     logWindowEvent('periodic-check', { status: 'mainWindow is null' })
+  //   }
+  // }, 60000) // Check every minute
 
   screen.on('display-added', () => {
     if (!mainWindow) return
     const [x, y] = mainWindow.getPosition()
-    logAppEvent('display-added', { currentPosition: { x, y } })
-    // Múltiplas tentativas com delays crescentes para garantir
+    const [width, height] = mainWindow.getSize()
+    logAppEvent('display-added', { currentPosition: { x, y }, currentSize: { width, height } })
+    forceDesiredSize()
     setTimeout(forceDesiredPosition, 500)
     setTimeout(forceDesiredPosition, 1500)
     setTimeout(forceDesiredPosition, 3000)
@@ -507,8 +559,9 @@ app.whenReady().then(() => {
   screen.on('display-removed', () => {
     if (!mainWindow) return
     const [x, y] = mainWindow.getPosition()
-    logAppEvent('display-removed', { currentPosition: { x, y } })
-    // Múltiplas tentativas com delays crescentes para garantir
+    const [width, height] = mainWindow.getSize()
+    logAppEvent('display-removed', { currentPosition: { x, y }, currentSize: { width, height } })
+    forceDesiredSize()
     setTimeout(forceDesiredPosition, 500)
     setTimeout(forceDesiredPosition, 1500)
     setTimeout(forceDesiredPosition, 3000)
@@ -517,14 +570,18 @@ app.whenReady().then(() => {
   screen.on('display-metrics-changed', () => {
     if (!mainWindow) return
     const [x, y] = mainWindow.getPosition()
-    logAppEvent('display-metrics-changed', { currentPosition: { x, y } })
-    // Múltiplas tentativas com delays crescentes para garantir
+    const [width, height] = mainWindow.getSize()
+    logAppEvent('display-metrics-changed', {
+      currentPosition: { x, y },
+      currentSize: { width, height },
+    })
+    forceDesiredSize()
     setTimeout(forceDesiredPosition, 500)
     setTimeout(forceDesiredPosition, 1500)
     setTimeout(forceDesiredPosition, 3000)
   })
 
-  app.on('activate', function () {
+  app.on('activate', () => {
     logAppEvent('activate')
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -544,9 +601,9 @@ app.on('will-quit', () => {
 })
 
 process.on('uncaughtException', (error) => {
-  logError('PROCESS', 'uncaughtException', error)
+  logError('PROCESS', 'uncaughtException', JSON.stringify(error))
 })
 
 process.on('unhandledRejection', (reason) => {
-  logError('PROCESS', 'unhandledRejection', reason as Error)
+  logError('PROCESS', 'unhandledRejection', JSON.stringify(reason as Error))
 })

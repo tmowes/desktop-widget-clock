@@ -1,6 +1,6 @@
 {
   "name": "desktop-widget-clock",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "productName": "Desktop Widget Clock",
   "description": "Aplicação de relógio de widget para desktop.",
   "author": "Piktew Softwares <t-mowes@hotmail.com>",
@@ -19,7 +19,7 @@
     "clear": "rm -rf out; rm -rf dist; rm -rf node_modules; rm bun.lock; bun install",
     "explorer": "powershell -Command \"Start-Process explorer 'dist'\"",
     "build:unpack": "bun run build && electron-builder --dir",
-    "build:win": "bun run build && electron-builder --win && bun run explorer"
+    "build:win": "bun run cleanup && bun run build && electron-builder --win && bun run explorer"
   },
   "dependencies": {
     "electron-store": "^11.0.2"

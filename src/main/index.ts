@@ -93,8 +93,7 @@ function getIconPath(): string {
 }
 
 function createTray(): void {
-  const iconPath = getIconPath()
-  const icon = nativeImage.createFromPath(iconPath).resize({ width: 20, height: 20 })
+  const icon = nativeImage.createFromPath(getIconPath()).resize({ width: 20, height: 20 })
 
   tray = new Tray(icon)
   tray.setToolTip('Desktop Widget Clock')
@@ -130,10 +129,7 @@ function updateTrayMenu(): void {
       click: () => {
         const newValue = !store.get('openAtLogin')
         store.set('openAtLogin', newValue)
-        app.setLoginItemSettings({
-          openAtLogin: newValue,
-          path: app.getPath('exe'),
-        })
+        app.setLoginItemSettings({ openAtLogin: newValue, path: app.getPath('exe') })
         updateTrayMenu()
       },
     },

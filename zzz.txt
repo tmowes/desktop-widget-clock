@@ -1,1 +1,1 @@
-C:\Users\tmowes\AppData\Roaming\Desktop Widget Clock\logs
+C:\Users\<username>\AppData\Roaming\Desktop Widget Clock\logs

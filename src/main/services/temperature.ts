@@ -52,7 +52,7 @@ async function fetchTemperatureData(): Promise<TemperatureData | null> {
     const payload = {
       operationName: 'Teste',
       variables: {},
-      query: 'query Teste {\n  tags: estacao_getEstacao(codigos: [])\n}',
+      query: `query Teste {\n  tags: estacao_getEstacao(codigos: ["${ESTACAO}"])\n}`,
     }
 
     const response = await fetch(API_URL, {
@@ -99,10 +99,10 @@ async function fetchAndLogTemperature(): Promise<void> {
   if (data) {
     lastTemperatureData = data
     logTemperature(data)
-    logAppEvent('Temperature fetched', {
-      sensTermica: `${data.sensTermica.value}${data.sensTermica.unit}`,
-      temperatura: `${data.temperatura.value}${data.temperatura.unit}`,
-    })
+    // logAppEvent('Temperature fetched', {
+    //   sensTermica: `${data.sensTermica.value}${data.sensTermica.unit}`,
+    //   temperatura: `${data.temperatura.value}${data.temperatura.unit}`,
+    // })
 
     const mainWindow = getMainWindow()
     if (mainWindow && !mainWindow.isDestroyed()) {

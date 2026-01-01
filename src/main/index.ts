@@ -15,9 +15,6 @@ import {
 logAppEvent('App starting', {
   version: app.getVersion(),
   isPackaged: app.isPackaged,
-  argv: process.argv,
-  execPath: process.execPath,
-  cwd: process.cwd(),
   platform: process.platform,
   arch: process.arch,
 })
@@ -74,7 +71,7 @@ app.whenReady().then(() => {
   })
 
   const openAtLogin = store.get('openAtLogin')
-  logAppEvent('Setting login item settings', { openAtLogin, exePath: app.getPath('exe') })
+  logAppEvent('Setting login item settings', { openAtLogin })
   app.setLoginItemSettings({
     openAtLogin: app.isPackaged ? openAtLogin : false,
     path: app.getPath('exe'),

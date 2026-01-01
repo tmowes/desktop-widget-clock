@@ -51,7 +51,6 @@ export function updateTrayMenu(store: Store<StoreSchema>, onResetPosition: () =>
       label: 'Abrir logs',
       type: 'normal',
       click: () => {
-        logAppEvent('Opening logs folder')
         openLogsFolder()
       },
     },

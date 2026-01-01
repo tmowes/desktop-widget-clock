@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { setupIpcHandlers } from './services/ipc'
 import { logAppEvent, logError, logWindowEvent } from './services/logger'
 import { store } from './services/store'
+import { startTemperatureService } from './services/temperature'
 import { createTray } from './services/tray'
 import { optimizer, setPackageAppUserModelId } from './services/utils'
 import {
@@ -87,6 +88,8 @@ app.whenReady().then(() => {
   createWindow(store)
 
   setupDisplayEvents(store)
+
+  startTemperatureService()
 
   app.on('activate', () => {
     logAppEvent('activate')

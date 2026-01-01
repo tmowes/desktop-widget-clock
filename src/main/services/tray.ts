@@ -2,7 +2,8 @@ import { join } from 'node:path'
 import { app, Menu, nativeImage, Tray } from 'electron'
 import Store from 'electron-store'
 import { logAppEvent, openLogsFolder } from './logger'
-import type { StoreSchema } from './store'
+import type { StoreSchema, TemperatureDisplayType } from './store'
+import { getMainWindow } from './window'
 
 let tray: Tray | null = null
 
@@ -63,6 +64,37 @@ export function updateTrayMenu(store: Store<StoreSchema>, onResetPosition: () =>
         store.set('openAtLogin', newValue)
         app.setLoginItemSettings({ openAtLogin: newValue, path: app.getPath('exe') })
         logAppEvent('Login item settings changed', { openAtLogin: newValue })
+        updateTrayMenu(store, onResetPosition)
+      },
+    },
+    {
+      type: 'separator',
+    },
+    {
+      label: 'Exibir Temperatura',
+      type: 'radio',
+      checked: store.get('temperatureDisplay') === 'temperatura',
+      click: () => {
+        store.set('temperatureDisplay', 'temperatura' as TemperatureDisplayType)
+        logAppEvent('Temperature display changed', { display: 'temperatura' })
+        const mainWindow = getMainWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('temperature-display-change', 'temperatura')
+        }
+        updateTrayMenu(store, onResetPosition)
+      },
+    },
+    {
+      label: 'Exibir Sensação Térmica',
+      type: 'radio',
+      checked: store.get('temperatureDisplay') === 'sensTermica',
+      click: () => {
+        store.set('temperatureDisplay', 'sensTermica' as TemperatureDisplayType)
+        logAppEvent('Temperature display changed', { display: 'sensTermica' })
+        const mainWindow = getMainWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('temperature-display-change', 'sensTermica')
+        }
         updateTrayMenu(store, onResetPosition)
       },
     },

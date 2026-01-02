@@ -30,91 +30,24 @@ function encodePS(script: string): string {
 }
 
 /**
- * Uses PowerShell to query Windows for Bluetooth device battery levels
- * Only returns the active audio device (default playback device)
+ * OPTIMIZED VERSION - Fetch Bluetooth battery data using PowerShell
+ * Key optimizations:
+ * 1. Uses `-Class System` to drastically reduce initial device list
+ * 2. Filters by `BTHENUM*` in InstanceId (real Bluetooth devices only)
+ * 3. Filters by `Hands-Free` in name (only devices that report battery)
  */
 async function fetchBluetoothBatteryData(): Promise<BluetoothBatteryData | null> {
   try {
-    // PowerShell script that finds the active audio device and its battery
-    const psScript = `
-$ErrorActionPreference = 'SilentlyContinue'
-$ProgressPreference = 'SilentlyContinue'
-
-# Bluetooth battery level property key
-$batteryKey = '{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2'
-$containerIdKey = 'DEVPKEY_Device_ContainerId'
-
-# Get active AudioEndpoints (both regular and Hands-Free) with Status OK
-$activeEndpoints = Get-PnpDevice -Class AudioEndpoint -Status OK | Where-Object {
-  $_.FriendlyName -match 'Fones de ouvido|Headphones|Headset|TMoweS'
-}
-
-# Build a set of active ContainerIds - single property fetch per endpoint
-$activeContainerIds = @{}
-foreach ($ep in $activeEndpoints) {
-  $allProps = Get-PnpDeviceProperty -InstanceId $ep.InstanceId -ErrorAction SilentlyContinue
-  $containerProp = $allProps | Where-Object { $_.KeyName -eq $containerIdKey }
-  if ($containerProp -and $containerProp.Data) {
-    $activeContainerIds[$containerProp.Data.ToString()] = $true
-  }
-}
-
-# Search for Bluetooth devices with battery potential
-$devices = Get-PnpDevice -Status OK | Where-Object {
-  $_.FriendlyName -match 'Buds|WH-|Headphone|Headset|AirPods|Earphone|Hands-Free|Galaxy|Sony|JBL|Bose|Jabra|PX7|Momentum' -and
-  $_.FriendlyName -notmatch 'Transporte|Enumerator|Controller|Adapter'
-}
-
-# For each device, fetch ALL properties once and extract what we need
-$deviceBatteries = @{}
-foreach ($dev in $devices) {
-  # Single call to get all properties for this device
-  $allProps = Get-PnpDeviceProperty -InstanceId $dev.InstanceId -ErrorAction SilentlyContinue
-
-  # Extract battery level from cached properties
-  $battProp = $allProps | Where-Object { $_.KeyName -eq $batteryKey }
-  if ($battProp -and $null -ne $battProp.Data) {
-    $battLevel = [int]$battProp.Data
-    if ($battLevel -ge 0 -and $battLevel -le 100) {
-      $cleanName = $dev.FriendlyName -replace ' Hands-Free.*$', ''
-
-      # Extract ContainerId from cached properties
-      $containerProp = $allProps | Where-Object { $_.KeyName -eq $containerIdKey }
-      $containerId = if ($containerProp -and $containerProp.Data) { $containerProp.Data.ToString() } else { '' }
-
-      # Check if this device's container is active
-      $isActive = $containerId -and $activeContainerIds.ContainsKey($containerId)
-
-      # Store by InstanceId to handle duplicates
-      $deviceBatteries[$dev.InstanceId] = [PSCustomObject]@{
-        Name = $cleanName
-        BatteryLevel = $battLevel
-        IsActive = $isActive
-      }
-    }
-  }
-}
-
-# Group by name, preferring active devices
-$grouped = @{}
-foreach ($item in $deviceBatteries.Values) {
-  $name = $item.Name
-  if ($item.IsActive -or (-not $grouped[$name])) {
-    $grouped[$name] = $item
-  }
-}
-
-# Direct assignment instead of ForEach-Object pipeline
-$results = @($grouped.Values)
-
-if ($results.Count -eq 0) {
-  Write-Output '[]'
-} else {
-  $results | ConvertTo-Json -Compress
-}
-`
+    const psScript = `$ErrorActionPreference='SilentlyContinue';$ProgressPreference='SilentlyContinue'
+$bk='{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2';$ck='DEVPKEY_Device_ContainerId'
+$ae=Get-PnpDevice -Class AudioEndpoint -Status OK|?{$_.FriendlyName-match'Fones de ouvido|Headphones|Headset|TMoweS'}
+$ac=@{};foreach($ep in $ae){$c=(Get-PnpDeviceProperty -InstanceId $ep.InstanceId -KeyName $ck -EA 0).Data;if($c){$ac[$c.ToString()]=$true}}
+$d=Get-PnpDevice -Class System -Status OK|?{$_.InstanceId-like'BTHENUM*'-and$_.FriendlyName-match'Hands-Free'}
+$db=@{};foreach($dev in $d){$bp=Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName $bk -EA 0;if($bp-and$null-ne$bp.Data){$bl=[int]$bp.Data;if($bl-ge0-and$bl-le100){$n=$dev.FriendlyName-replace' Hands-Free.*$','';$cp=Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName $ck -EA 0;$ci=if($cp-and$cp.Data){$cp.Data.ToString()}else{''};$ia=$ci-and$ac.ContainsKey($ci);$db[$dev.InstanceId]=[PSCustomObject]@{Name=$n;BatteryLevel=$bl;IsActive=$ia}}}}
+$g=@{};foreach($i in $db.Values){if($i.IsActive-or(-not$g[$i.Name])){$g[$i.Name]=$i}};@($g.Values)|ConvertTo-Json -Compress`
 
     logAppEvent('Bluetooth: Fetching battery data...')
+    const startTime = performance.now()
     const encoded = encodePS(psScript)
 
     const { stdout, stderr } = await execAsync(
@@ -126,28 +59,27 @@ if ($results.Count -eq 0) {
       },
     )
 
+    const execTime = performance.now() - startTime
+
     if (stderr && !stderr.includes('CLIXML') && !stderr.includes('progress')) {
       logError('Bluetooth', 'PowerShell stderr', stderr.substring(0, 500))
     }
 
     const trimmed = stdout.trim()
-    logAppEvent(`Bluetooth: Raw output: ${trimmed.substring(0, 300)}`)
 
     if (!trimmed || trimmed === 'null' || trimmed === '' || trimmed === '[]') {
-      logAppEvent('Bluetooth: No devices with battery found')
+      logAppEvent(`Bluetooth: No devices found (${execTime.toFixed(0)}ms)`)
       return { devices: [], activeDevice: null, timestamp: new Date().toISOString() }
     }
 
+    // Parse devices array directly (no wrapper object)
     // biome-ignore lint/suspicious/noExplicitAny: PowerShell output parsing
     let parsedDevices: any[] = []
     try {
       const parsed = JSON.parse(trimmed)
       parsedDevices = Array.isArray(parsed) ? parsed : [parsed]
-    } catch (parseError) {
-      logError('Bluetooth', 'Failed to parse JSON', {
-        output: trimmed.substring(0, 300),
-        error: String(parseError),
-      })
+    } catch {
+      logError('Bluetooth', 'Failed to parse JSON', { output: trimmed.substring(0, 300) })
       return null
     }
 
@@ -159,7 +91,7 @@ if ($results.Count -eq 0) {
         isActive: Boolean(d.IsActive),
       }))
 
-    logAppEvent(`Bluetooth: Found ${devices.length} device(s) with battery`)
+    logAppEvent(`Bluetooth: Found ${devices.length} device(s) in ${execTime.toFixed(0)}ms`)
     devices.forEach((d) =>
       logAppEvent(`  - ${d.name}: ${d.batteryLevel}%${d.isActive ? ' [ACTIVE]' : ''}`),
     )

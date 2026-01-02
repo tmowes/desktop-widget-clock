@@ -16,6 +16,19 @@ export interface TemperatureData {
   timestamp: string
 }
 
+export interface BluetoothDevice {
+  name: string
+  batteryLevel: number | null
+  isConnected: boolean
+  isActive: boolean
+}
+
+export interface BluetoothBatteryData {
+  devices: BluetoothDevice[]
+  activeDevice: BluetoothDevice | null
+  timestamp: string
+}
+
 const api = {
   ping: (): void => {
     ipcRenderer.send('ping')
@@ -47,6 +60,18 @@ const api = {
     ipcRenderer.on('temperature-display-change', handler)
     return () => {
       ipcRenderer.removeListener('temperature-display-change', handler)
+    }
+  },
+  getBluetoothBattery: (): Promise<BluetoothBatteryData | null> => {
+    return ipcRenderer.invoke('get-bluetooth-battery')
+  },
+  onBluetoothBatteryUpdate: (callback: (data: BluetoothBatteryData) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: BluetoothBatteryData): void => {
+      callback(data)
+    }
+    ipcRenderer.on('bluetooth-battery-update', handler)
+    return () => {
+      ipcRenderer.removeListener('bluetooth-battery-update', handler)
     }
   },
 }

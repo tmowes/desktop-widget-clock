@@ -4,7 +4,7 @@ import Store from 'electron-store'
 import { logAppEvent, logError, logWindowEvent, type WindowState } from './logger'
 import type { StoreSchema, WindowPosition } from './store'
 
-export const WINDOW_WIDTH = 240
+export const WINDOW_WIDTH = 320
 export const WINDOW_HEIGHT = 47
 export const DESIRED_POSITION: WindowPosition = { x: 0, y: 1696 }
 

@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron'
+import { startBluetoothBatteryMonitoring } from './services/bluetooth-battery'
 import { setupIpcHandlers } from './services/ipc'
 import { logAppEvent, logError, logWindowEvent } from './services/logger'
 import { store } from './services/store'
@@ -87,6 +88,8 @@ app.whenReady().then(() => {
   setupDisplayEvents(store)
 
   startTemperatureService()
+
+  startBluetoothBatteryMonitoring()
 
   app.on('activate', () => {
     logAppEvent('activate')

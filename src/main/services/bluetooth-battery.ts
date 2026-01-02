@@ -10,7 +10,6 @@ const FETCH_INTERVAL = 30_000 // 30 seconds
 export interface BluetoothDevice {
   name: string
   batteryLevel: number | null
-  isConnected: boolean
   isActive: boolean
 }
 
@@ -41,68 +40,72 @@ async function fetchBluetoothBatteryData(): Promise<BluetoothBatteryData | null>
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 
+# Bluetooth battery level property key
 $batteryKey = '{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2'
-$results = @()
+$containerIdKey = 'DEVPKEY_Device_ContainerId'
 
 # Get active AudioEndpoints (both regular and Hands-Free) with Status OK
 $activeEndpoints = Get-PnpDevice -Class AudioEndpoint -Status OK | Where-Object {
   $_.FriendlyName -match 'Fones de ouvido|Headphones|Headset|TMoweS'
 }
 
-# Build a set of active ContainerIds
+# Build a set of active ContainerIds - single property fetch per endpoint
 $activeContainerIds = @{}
 foreach ($ep in $activeEndpoints) {
-  $epProps = Get-PnpDeviceProperty -InstanceId $ep.InstanceId -ErrorAction SilentlyContinue | Where-Object { $_.KeyName -eq 'DEVPKEY_Device_ContainerId' }
-  if ($epProps -and $epProps.Data) {
-    $activeContainerIds[$epProps.Data.ToString()] = $true
+  $allProps = Get-PnpDeviceProperty -InstanceId $ep.InstanceId -ErrorAction SilentlyContinue
+  $containerProp = $allProps | Where-Object { $_.KeyName -eq $containerIdKey }
+  if ($containerProp -and $containerProp.Data) {
+    $activeContainerIds[$containerProp.Data.ToString()] = $true
   }
 }
 
-# Search for Bluetooth devices with battery
+# Search for Bluetooth devices with battery potential
 $devices = Get-PnpDevice -Status OK | Where-Object {
   $_.FriendlyName -match 'Buds|WH-|Headphone|Headset|AirPods|Earphone|Hands-Free|Galaxy|Sony|JBL|Bose|Jabra|PX7|Momentum' -and
   $_.FriendlyName -notmatch 'Transporte|Enumerator|Controller|Adapter'
 }
 
-# For each battery device, check if its ContainerId matches an active endpoint
+# For each device, fetch ALL properties once and extract what we need
 $deviceBatteries = @{}
 foreach ($dev in $devices) {
-  $battProp = Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName $batteryKey -ErrorAction SilentlyContinue
+  # Single call to get all properties for this device
+  $allProps = Get-PnpDeviceProperty -InstanceId $dev.InstanceId -ErrorAction SilentlyContinue
+
+  # Extract battery level from cached properties
+  $battProp = $allProps | Where-Object { $_.KeyName -eq $batteryKey }
   if ($battProp -and $null -ne $battProp.Data) {
     $battLevel = [int]$battProp.Data
     if ($battLevel -ge 0 -and $battLevel -le 100) {
       $cleanName = $dev.FriendlyName -replace ' Hands-Free.*$', ''
 
-      # Get this device's ContainerId
-      $devProps = Get-PnpDeviceProperty -InstanceId $dev.InstanceId -ErrorAction SilentlyContinue | Where-Object { $_.KeyName -eq 'DEVPKEY_Device_ContainerId' }
-      $containerId = if ($devProps -and $devProps.Data) { $devProps.Data.ToString() } else { '' }
+      # Extract ContainerId from cached properties
+      $containerProp = $allProps | Where-Object { $_.KeyName -eq $containerIdKey }
+      $containerId = if ($containerProp -and $containerProp.Data) { $containerProp.Data.ToString() } else { '' }
 
       # Check if this device's container is active
       $isActive = $containerId -and $activeContainerIds.ContainsKey($containerId)
 
       # Store by InstanceId to handle duplicates
-      $key = $dev.InstanceId
-      $deviceBatteries[$key] = [PSCustomObject]@{
+      $deviceBatteries[$dev.InstanceId] = [PSCustomObject]@{
         Name = $cleanName
         BatteryLevel = $battLevel
-        IsConnected = $true
         IsActive = $isActive
       }
     }
   }
 }
 
-# Convert to results, preferring active devices for same name
+# Group by name, preferring active devices
 $grouped = @{}
 foreach ($item in $deviceBatteries.Values) {
   $name = $item.Name
-  # Only replace if this one is active or we don't have one yet
   if ($item.IsActive -or (-not $grouped[$name])) {
     $grouped[$name] = $item
   }
 }
 
-$results = $grouped.Values | ForEach-Object { $_ }
+# Direct assignment instead of ForEach-Object pipeline
+$results = @($grouped.Values)
 
 if ($results.Count -eq 0) {
   Write-Output '[]'
@@ -153,7 +156,6 @@ if ($results.Count -eq 0) {
       .map((d) => ({
         name: d.Name,
         batteryLevel: d.BatteryLevel,
-        isConnected: Boolean(d.IsConnected),
         isActive: Boolean(d.IsActive),
       }))
 

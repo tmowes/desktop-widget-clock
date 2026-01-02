@@ -44,25 +44,17 @@ $ProgressPreference = 'SilentlyContinue'
 $batteryKey = '{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2'
 $results = @()
 
-# Get audio endpoints that are ACTIVE (Status OK means connected and available)
+# Get active AudioEndpoints (both regular and Hands-Free) with Status OK
 $activeEndpoints = Get-PnpDevice -Class AudioEndpoint -Status OK | Where-Object {
-  $_.FriendlyName -match 'Fones de ouvido|Headphones|Headset' -and
-  $_.FriendlyName -notmatch 'Hands-Free'
+  $_.FriendlyName -match 'Fones de ouvido|Headphones|Headset|TMoweS'
 }
-$activeNames = @()
+
+# Build a set of active ContainerIds
+$activeContainerIds = @{}
 foreach ($ep in $activeEndpoints) {
-  # Extract the device name from the endpoint name
-  # Handle format: "Fones de ouvido (Galaxy Buds2 Pro)" or "Headset (2- WH-1000XM6)"
-  $fn = $ep.FriendlyName
-  $start = $fn.IndexOf('(')
-  $end = $fn.LastIndexOf(')')
-  if ($start -ge 0 -and $end -gt $start) {
-    $name = $fn.Substring($start + 1, $end - $start - 1)
-    # Remove prefix like "2- " if present
-    $name = $name -replace '^\d+-\s*', ''
-    if ($name -and $activeNames -notcontains $name) {
-      $activeNames += $name
-    }
+  $epProps = Get-PnpDeviceProperty -InstanceId $ep.InstanceId -ErrorAction SilentlyContinue | Where-Object { $_.KeyName -eq 'DEVPKEY_Device_ContainerId' }
+  if ($epProps -and $epProps.Data) {
+    $activeContainerIds[$epProps.Data.ToString()] = $true
   }
 }
 
@@ -72,32 +64,45 @@ $devices = Get-PnpDevice -Status OK | Where-Object {
   $_.FriendlyName -notmatch 'Transporte|Enumerator|Controller|Adapter'
 }
 
+# For each battery device, check if its ContainerId matches an active endpoint
+$deviceBatteries = @{}
 foreach ($dev in $devices) {
   $battProp = Get-PnpDeviceProperty -InstanceId $dev.InstanceId -KeyName $batteryKey -ErrorAction SilentlyContinue
   if ($battProp -and $null -ne $battProp.Data) {
     $battLevel = [int]$battProp.Data
     if ($battLevel -ge 0 -and $battLevel -le 100) {
       $cleanName = $dev.FriendlyName -replace ' Hands-Free.*$', ''
-      $existing = $results | Where-Object { $_.Name -eq $cleanName }
-      if (-not $existing) {
-        # Check if this device has an active audio endpoint (Status OK)
-        $isActive = $false
-        foreach ($an in $activeNames) {
-          if ($cleanName -eq $an) {
-            $isActive = $true
-            break
-          }
-        }
-        $results += [PSCustomObject]@{
-          Name = $cleanName
-          BatteryLevel = $battLevel
-          IsConnected = $true
-          IsActive = $isActive
-        }
+
+      # Get this device's ContainerId
+      $devProps = Get-PnpDeviceProperty -InstanceId $dev.InstanceId -ErrorAction SilentlyContinue | Where-Object { $_.KeyName -eq 'DEVPKEY_Device_ContainerId' }
+      $containerId = if ($devProps -and $devProps.Data) { $devProps.Data.ToString() } else { '' }
+
+      # Check if this device's container is active
+      $isActive = $containerId -and $activeContainerIds.ContainsKey($containerId)
+
+      # Store by InstanceId to handle duplicates
+      $key = $dev.InstanceId
+      $deviceBatteries[$key] = [PSCustomObject]@{
+        Name = $cleanName
+        BatteryLevel = $battLevel
+        IsConnected = $true
+        IsActive = $isActive
       }
     }
   }
 }
+
+# Convert to results, preferring active devices for same name
+$grouped = @{}
+foreach ($item in $deviceBatteries.Values) {
+  $name = $item.Name
+  # Only replace if this one is active or we don't have one yet
+  if ($item.IsActive -or (-not $grouped[$name])) {
+    $grouped[$name] = $item
+  }
+}
+
+$results = $grouped.Values | ForEach-Object { $_ }
 
 if ($results.Count -eq 0) {
   Write-Output '[]'

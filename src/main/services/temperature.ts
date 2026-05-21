@@ -1,31 +1,32 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import type { TemperatureData } from '~/shared/types'
 import { logAppEvent, logError } from './logger'
 import { getMainWindow } from './window'
 
 const LOG_DIR = join(app.getPath('userData'), 'logs')
 const TEMPERATURE_LOG_FILE = join(LOG_DIR, 'temperature.log')
 const ESTACAO = 'DCSC-00034'
-const API_URL = 'https://monitoramento.defesacivil.sc.gov.br/graphql'
-const FETCH_INTERVAL = 15_000 // 15 seconds
-
-export interface TemperatureData {
-  sensTermica: {
-    value: string | null
-    unit: string | null
-    label: string | null
+const WS_URL = 'wss://monitoramento-dcsc.quallecontrol.com.br/graphql'
+const SUBSCRIPTION_QUERY = `subscription {
+  nowcasting_unique(clients: ["secretaria-de-defesa-civil"], station: ["${ESTACAO}"]) {
+    qualle_meteorologia {
+      codigo
+      timestamp
+      data {
+        temperatura { atual { value unit { value } } }
+        senstermica { atual { value unit { value } } }
+      }
+    }
   }
-  temperatura: {
-    value: string | null
-    unit: string | null
-    label: string | null
-  }
-  timestamp: string
-}
+}`
+const RECONNECT_DELAY = 5_000
 
-let intervalId: ReturnType<typeof setInterval> | null = null
+let ws: WebSocket | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let lastTemperatureData: TemperatureData | null = null
+let running = false
 
 function ensureLogDirectory(): void {
   if (!existsSync(LOG_DIR)) {
@@ -47,92 +48,128 @@ function logTemperature(data: TemperatureData): void {
   appendFileSync(TEMPERATURE_LOG_FILE, logLine)
 }
 
-async function fetchTemperatureData(): Promise<TemperatureData | null> {
-  try {
-    const payload = {
-      operationName: 'Teste',
-      variables: {},
-      query: `query Teste {\n  tags: estacao_getEstacao(codigos: ["${ESTACAO}"])\n}`,
-    }
+type AtualValue = {
+  value: number | null
+  unit: { value: string | null } | null
+}
 
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+type QualleMeteorologia = {
+  codigo: string
+  timestamp: string
+  data: {
+    temperatura: { atual: AtualValue | null } | null
+    senstermica: { atual: AtualValue | null } | null
+  } | null
+}
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
+type NowcastingPayload = {
+  nowcasting_unique: { qualle_meteorologia: QualleMeteorologia | null } | null
+}
 
-    const json = await response.json()
-    const estacaoData = json?.data?.tags?.[ESTACAO]
+type WsMessage = {
+  id?: string
+  type: 'connection_ack' | 'next' | 'error' | 'complete' | 'ping' | 'pong'
+  payload?: { data?: NowcastingPayload; errors?: unknown }
+}
 
-    if (!estacaoData) {
-      logError('Temperature fetch', `No data found for station ${ESTACAO}`)
-      return null
-    }
+function handleMessage(payload: NowcastingPayload | undefined): void {
+  const estacao = payload?.nowcasting_unique?.qualle_meteorologia
+  if (!estacao) return
 
-    const data: TemperatureData = {
-      sensTermica: {
-        value: estacaoData['Data/SensTermica/Atual/Value'] ?? null,
-        unit: estacaoData['Data/SensTermica/Atual/Unit'] ?? null,
-        label: estacaoData['Data/SensTermica/Atual/Label'] ?? null,
-      },
-      temperatura: {
-        value: estacaoData['Data/Temperatura/Atual/Value'] ?? null,
-        unit: estacaoData['Data/Temperatura/Atual/Unit'] ?? null,
-        label: estacaoData['Data/Temperatura/Atual/Label'] ?? null,
-      },
-      timestamp: new Date().toISOString(),
-    }
+  const temperaturaAtual = estacao.data?.temperatura?.atual
+  const sensTermicaAtual = estacao.data?.senstermica?.atual
 
-    return data
-  } catch (error) {
-    logError('Temperature fetch', 'Failed to fetch temperature data', error)
-    return null
+  const data: TemperatureData = {
+    sensTermica: {
+      value: sensTermicaAtual?.value != null ? String(sensTermicaAtual.value) : null,
+      unit: sensTermicaAtual?.unit?.value ?? null,
+      label: null,
+    },
+    temperatura: {
+      value: temperaturaAtual?.value != null ? String(temperaturaAtual.value) : null,
+      unit: temperaturaAtual?.unit?.value ?? null,
+      label: null,
+    },
+    timestamp: estacao.timestamp ?? new Date().toISOString(),
+  }
+
+  lastTemperatureData = data
+  logTemperature(data)
+
+  const mainWindow = getMainWindow()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('temperature-update', data)
   }
 }
 
-async function fetchAndLogTemperature(): Promise<void> {
-  const data = await fetchTemperatureData()
-  if (data) {
-    lastTemperatureData = data
-    logTemperature(data)
-    // logAppEvent('Temperature fetched', {
-    //   sensTermica: `${data.sensTermica.value}${data.sensTermica.unit}`,
-    //   temperatura: `${data.temperatura.value}${data.temperatura.unit}`,
-    // })
+function connect(): void {
+  if (!running) return
 
-    const mainWindow = getMainWindow()
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('temperature-update', data)
+  ws = new WebSocket(WS_URL, ['graphql-transport-ws'])
+  let subscribed = false
+
+  ws.onopen = () => {
+    ws!.send(JSON.stringify({ type: 'connection_init', payload: {} }))
+  }
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data as string) as WsMessage
+
+      if (msg.type === 'connection_ack' && !subscribed) {
+        subscribed = true
+        ws!.send(
+          JSON.stringify({
+            id: '1',
+            type: 'subscribe',
+            payload: { query: SUBSCRIPTION_QUERY, variables: {} },
+          }),
+        )
+      } else if (msg.type === 'next' && msg.id === '1') {
+        handleMessage(msg.payload?.data)
+      } else if (msg.type === 'error') {
+        logError('Temperature WS', 'Subscription error', msg.payload)
+      }
+    } catch (error) {
+      logError('Temperature WS', 'Failed to parse message', error)
+    }
+  }
+
+  ws.onerror = () => {
+    logError('Temperature WS', 'WebSocket connection error')
+  }
+
+  ws.onclose = () => {
+    ws = null
+    subscribed = false
+    if (running) {
+      reconnectTimer = setTimeout(connect, RECONNECT_DELAY)
     }
   }
 }
 
 export function startTemperatureService(): void {
-  if (intervalId) {
+  if (running) {
     logAppEvent('Temperature service already running')
     return
   }
 
-  logAppEvent('Starting temperature service', {
-    estacao: ESTACAO,
-    interval: `${FETCH_INTERVAL / 1000}s`,
-  })
-
-  fetchAndLogTemperature()
-
-  intervalId = setInterval(fetchAndLogTemperature, FETCH_INTERVAL)
+  running = true
+  logAppEvent('Starting temperature service', { estacao: ESTACAO, endpoint: WS_URL })
+  connect()
 }
 
 export function stopTemperatureService(): void {
-  if (intervalId) {
-    clearInterval(intervalId)
-    intervalId = null
-    logAppEvent('Temperature service stopped')
+  running = false
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
   }
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+  logAppEvent('Temperature service stopped')
 }
 
 export function getLastTemperatureData(): TemperatureData | null {

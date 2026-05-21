@@ -1,8 +1,8 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import Store from 'electron-store'
-import { logAppEvent, logError, logWindowEvent, type WindowState } from './logger'
-import type { StoreSchema, WindowPosition } from './store'
+import type { StoreSchema, WindowPosition, WindowState } from '~/shared/types'
+import { logAppEvent, logError, logWindowEvent } from './logger'
 
 export const WINDOW_WIDTH = 320
 export const WINDOW_HEIGHT = 47

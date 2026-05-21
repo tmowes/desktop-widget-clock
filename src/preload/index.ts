@@ -1,33 +1,5 @@
 import { contextBridge, IpcRendererEvent, ipcRenderer } from 'electron'
-
-export type TemperatureDisplayType = 'temperatura' | 'sensTermica'
-
-export interface TemperatureData {
-  sensTermica: {
-    value: string | null
-    unit: string | null
-    label: string | null
-  }
-  temperatura: {
-    value: string | null
-    unit: string | null
-    label: string | null
-  }
-  timestamp: string
-}
-
-export interface BluetoothDevice {
-  name: string
-  batteryLevel: number | null
-  isConnected: boolean
-  isActive: boolean
-}
-
-export interface BluetoothBatteryData {
-  devices: BluetoothDevice[]
-  activeDevice: BluetoothDevice | null
-  timestamp: string
-}
+import type { BluetoothBatteryData, TemperatureData, TemperatureDisplayType } from '~/shared/types'
 
 const api = {
   ping: (): void => {

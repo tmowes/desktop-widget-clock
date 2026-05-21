@@ -1,23 +1,12 @@
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import type { BluetoothBatteryData, BluetoothDevice } from '~/shared/types'
 import { logAppEvent, logError } from './logger'
 import { getMainWindow } from './window'
 
 const execAsync = promisify(exec)
 
 const FETCH_INTERVAL = 30_000 // 30 seconds
-
-export interface BluetoothDevice {
-  name: string
-  batteryLevel: number | null
-  isActive: boolean
-}
-
-export interface BluetoothBatteryData {
-  devices: BluetoothDevice[]
-  activeDevice: BluetoothDevice | null
-  timestamp: string
-}
 
 let intervalId: ReturnType<typeof setInterval> | null = null
 let lastBluetoothData: BluetoothBatteryData | null = null
@@ -72,19 +61,21 @@ $g=@{};foreach($i in $db.Values){if($i.IsActive-or(-not$g[$i.Name])){$g[$i.Name]
       return { devices: [], activeDevice: null, timestamp: new Date().toISOString() }
     }
 
-    // Parse devices array directly (no wrapper object)
-    // biome-ignore lint/suspicious/noExplicitAny: PowerShell output parsing
-    let parsedDevices: any[] = []
+    type PsDevice = { Name?: unknown; BatteryLevel?: unknown; IsActive?: unknown }
+    let parsedDevices: PsDevice[] = []
     try {
-      const parsed = JSON.parse(trimmed)
-      parsedDevices = Array.isArray(parsed) ? parsed : [parsed]
+      const parsed: unknown = JSON.parse(trimmed)
+      parsedDevices = Array.isArray(parsed) ? (parsed as PsDevice[]) : [parsed as PsDevice]
     } catch {
       logError('Bluetooth', 'Failed to parse JSON', { output: trimmed.substring(0, 300) })
       return null
     }
 
     const devices: BluetoothDevice[] = parsedDevices
-      .filter((d) => d && d.Name && typeof d.BatteryLevel === 'number')
+      .filter(
+        (d): d is { Name: string; BatteryLevel: number; IsActive?: unknown } =>
+          typeof d?.Name === 'string' && typeof d.BatteryLevel === 'number',
+      )
       .map((d) => ({
         name: d.Name,
         batteryLevel: d.BatteryLevel,

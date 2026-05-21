@@ -38,33 +38,8 @@ export type shortcutOptions = {
   zoom?: boolean
 }
 
-export interface Optimizer {
-  /**
-   * Default open or close DevTools by `F12` in development and
-   * ignore `CommandOrControl + R` in production.
-   *
-   * Use `shortcutOptions` to control more shortcuts.
-   */
+export type Optimizer = {
   watchWindowShortcuts: (window: BrowserWindow, shortcutOptions?: shortcutOptions) => void
-  /**
-   * If use a frameless window which hide the system's native window controls,
-   * we may need to create custom window controls in HTML.
-   *
-   * The frameless window ipc allow the renderer process to control the
-   * browser window.
-   *
-   * The ipc channel named `win:invoke`.
-   *
-   * For Example:
-   *
-   * ```
-   * ipcRenderer.send('win:invoke', 'show')
-   * ipcRenderer.send('win:invoke', 'showInactive')
-   * ipcRenderer.send('win:invoke', 'min')
-   * ipcRenderer.send('win:invoke', 'max')
-   * ipcRenderer.send('win:invoke', 'close')
-   * ```
-   */
   registerFramelessWindowIpc: () => void
 }
 

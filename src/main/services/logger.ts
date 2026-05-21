@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, shell } from 'electron'
+import type { WindowState } from '~/shared/types'
 
 const LOG_DIR = join(app.getPath('userData'), 'logs')
 const LOG_FILE = join(LOG_DIR, 'window-events.log')
@@ -37,14 +38,6 @@ function rotateLogIfNeeded(): void {
   } catch {
     // Ignore rotation errors
   }
-}
-
-export interface WindowState {
-  x: number
-  y: number
-  width: number
-  height: number
-  isOnTop: boolean
 }
 
 export function log(

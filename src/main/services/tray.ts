@@ -1,8 +1,8 @@
 import { join } from 'node:path'
 import { app, Menu, nativeImage, Tray } from 'electron'
 import Store from 'electron-store'
+import type { StoreSchema, TemperatureDisplayType } from '~/shared/types'
 import { logAppEvent, openLogsFolder } from './logger'
-import type { StoreSchema, TemperatureDisplayType } from './store'
 import { getMainWindow } from './window'
 
 let tray: Tray | null = null

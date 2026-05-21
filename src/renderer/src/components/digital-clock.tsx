@@ -1,34 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/libs/api'
-
-type TemperatureDisplayType = 'temperatura' | 'sensTermica'
-
-interface TemperatureData {
-  sensTermica: {
-    value: string | null
-    unit: string | null
-    label: string | null
-  }
-  temperatura: {
-    value: string | null
-    unit: string | null
-    label: string | null
-  }
-  timestamp: string
-}
-
-interface BluetoothDevice {
-  name: string
-  batteryLevel: number | null
-  isConnected: boolean
-  isActive: boolean
-}
-
-interface BluetoothBatteryData {
-  devices: BluetoothDevice[]
-  activeDevice: BluetoothDevice | null
-  timestamp: string
-}
+import type { BluetoothBatteryData, TemperatureData, TemperatureDisplayType } from '~/shared/types'
 
 export function DigitalClock() {
   const [time, setTime] = useState(new Date())

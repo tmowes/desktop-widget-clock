@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, powerMonitor } from 'electron'
 import { startBluetoothBatteryMonitoring } from './services/bluetooth-battery'
 import { setupIpcHandlers } from './services/ipc'
 import { logAppEvent, logError, logWindowEvent } from './services/logger'
@@ -7,9 +7,11 @@ import { startTemperatureService } from './services/temperature'
 import { createTray } from './services/tray'
 import { optimizer, setPackageAppUserModelId } from './services/utils'
 import {
+  cancelPendingOverlayRecoveries,
   createWindow,
   getMainWindow,
   resetWindowPosition,
+  scheduleOverlayRecovery,
   setupDisplayEvents,
 } from './services/window'
 
@@ -91,6 +93,26 @@ app.whenReady().then(() => {
 
   startBluetoothBatteryMonitoring()
 
+  if (process.platform === 'win32') {
+    powerMonitor.on('resume', () => {
+      logAppEvent('powerMonitor:resume')
+      scheduleOverlayRecovery(store, 'resume')
+    })
+
+    powerMonitor.on('unlock-screen', () => {
+      logAppEvent('powerMonitor:unlock-screen')
+      scheduleOverlayRecovery(store, 'unlock-screen')
+    })
+
+    powerMonitor.on('suspend', () => {
+      logAppEvent('powerMonitor:suspend')
+    })
+
+    powerMonitor.on('lock-screen', () => {
+      logAppEvent('powerMonitor:lock-screen')
+    })
+  }
+
   app.on('activate', () => {
     logAppEvent('activate')
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -106,6 +128,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   logAppEvent('before-quit')
+  cancelPendingOverlayRecoveries()
 })
 
 app.on('will-quit', () => {

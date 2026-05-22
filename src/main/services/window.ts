@@ -8,7 +8,10 @@ export const WINDOW_WIDTH = 320
 export const WINDOW_HEIGHT = 47
 export const DESIRED_POSITION: WindowPosition = { x: 0, y: 1696 }
 
+const OVERLAY_RECOVERY_DELAYS_MS = [0, 250, 1000, 2500]
+
 let mainWindow: BrowserWindow | null = null
+const overlayRecoveryTimeouts = new Set<NodeJS.Timeout>()
 
 function getWindowState(): WindowState | undefined {
   if (!mainWindow || mainWindow.isDestroyed()) return undefined
@@ -341,46 +344,60 @@ function setupWindowEvents(store: Store<StoreSchema>): void {
   })
 }
 
+function runOverlayRecovery(store: Store<StoreSchema>, reason: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+
+  mainWindow.setAlwaysOnTop(true, 'screen-saver')
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
+
+  forceDesiredSize()
+  forceDesiredPosition(store)
+
+  const state = getWindowState()
+  logWindowEvent('overlay-recovery-pass', { reason }, state)
+}
+
+export function scheduleOverlayRecovery(store: Store<StoreSchema>, reason: string): void {
+  const state = getWindowState()
+  logWindowEvent(
+    'overlay-recovery-scheduled',
+    { reason, delays: OVERLAY_RECOVERY_DELAYS_MS },
+    state,
+  )
+
+  for (const delayMs of OVERLAY_RECOVERY_DELAYS_MS) {
+    const timeout = setTimeout(() => {
+      overlayRecoveryTimeouts.delete(timeout)
+      runOverlayRecovery(store, `${reason}+${delayMs}ms`)
+    }, delayMs)
+    overlayRecoveryTimeouts.add(timeout)
+  }
+}
+
+export function cancelPendingOverlayRecoveries(): void {
+  for (const timeout of overlayRecoveryTimeouts) {
+    clearTimeout(timeout)
+  }
+  overlayRecoveryTimeouts.clear()
+}
+
 export function setupDisplayEvents(store: Store<StoreSchema>): void {
-  screen.on('display-added', () => {
+  const handleDisplayEvent = (event: string) => {
     if (!mainWindow) return
     const state = getWindowState()
-    logAppEvent('display-added', {
+    logAppEvent(event, {
       position: state ? { x: state.x, y: state.y } : undefined,
       size: state ? { width: state.width, height: state.height } : undefined,
       isOnTop: state?.isOnTop,
     })
-    forceDesiredSize()
-    setTimeout(() => forceDesiredPosition(store), 500)
-    setTimeout(() => forceDesiredPosition(store), 1500)
-    setTimeout(() => forceDesiredPosition(store), 3000)
-  })
+    scheduleOverlayRecovery(store, event)
+  }
 
-  screen.on('display-removed', () => {
-    if (!mainWindow) return
-    const state = getWindowState()
-    logAppEvent('display-removed', {
-      position: state ? { x: state.x, y: state.y } : undefined,
-      size: state ? { width: state.width, height: state.height } : undefined,
-      isOnTop: state?.isOnTop,
-    })
-    forceDesiredSize()
-    setTimeout(() => forceDesiredPosition(store), 500)
-    setTimeout(() => forceDesiredPosition(store), 1500)
-    setTimeout(() => forceDesiredPosition(store), 3000)
-  })
-
-  screen.on('display-metrics-changed', () => {
-    if (!mainWindow) return
-    const state = getWindowState()
-    logAppEvent('display-metrics-changed', {
-      position: state ? { x: state.x, y: state.y } : undefined,
-      size: state ? { width: state.width, height: state.height } : undefined,
-      isOnTop: state?.isOnTop,
-    })
-    forceDesiredSize()
-    setTimeout(() => forceDesiredPosition(store), 500)
-    setTimeout(() => forceDesiredPosition(store), 1500)
-    setTimeout(() => forceDesiredPosition(store), 3000)
-  })
+  screen.on('display-added', () => handleDisplayEvent('display-added'))
+  screen.on('display-removed', () => handleDisplayEvent('display-removed'))
+  screen.on('display-metrics-changed', () => handleDisplayEvent('display-metrics-changed'))
 }

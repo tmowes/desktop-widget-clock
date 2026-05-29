@@ -5,8 +5,7 @@ import type { StoreSchema, WindowPosition, WindowState } from '~/shared/types'
 import { logAppEvent, logError, logWindowEvent } from './logger'
 
 export const WINDOW_WIDTH = 320
-export const WINDOW_HEIGHT = 47
-export const DESIRED_POSITION: WindowPosition = { x: 0, y: 1696 }
+export const WINDOW_HEIGHT = 32
 
 const OVERLAY_RECOVERY_DELAYS_MS = [0, 250, 1000, 2500]
 
@@ -25,8 +24,48 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
+/**
+ * Posição padrão do widget: encostado no canto inferior esquerdo do monitor
+ * principal.
+ *
+ * O Electron posiciona janelas em pixels lógicos (DIP), então derivamos a
+ * posição a partir de `bounds` do display principal em vez de usar um valor
+ * fixo. Assim a janela fica alinhada à base em qualquer escala do Windows
+ * (o valor não precisa ser multiplicado pela escala):
+ *   - 100%: bounds.height = 2160 -> y = 2160 - 32 = 2128
+ *   - 125%: bounds.height = 1728 -> y = 1728 - 32 = 1696 (antigo valor fixo)
+ */
 function getDefaultPosition(): WindowPosition {
-  return DESIRED_POSITION
+  const { bounds } = screen.getPrimaryDisplay()
+  return {
+    x: bounds.x,
+    y: bounds.y + bounds.height - WINDOW_HEIGHT,
+  }
+}
+
+/**
+ * Resolve a âncora correta da janela (canto inferior esquerdo do monitor
+ * principal) para a escala/layout de telas atuais e mantém o valor salvo em
+ * sincronia.
+ *
+ * Como o widget é um overlay fixo (não arrastável), a posição salva é apenas um
+ * cache. Se a escala do Windows mudar — na inicialização ou em tempo real, de
+ * 100% a 300% — o valor salvo fica obsoleto, então recalculamos a partir de
+ * `bounds` (em DIP) do monitor principal e fazemos a janela "grudar" na base
+ * novamente.
+ */
+function resolveAnchoredPosition(store: Store<StoreSchema>): WindowPosition {
+  const anchor = getDefaultPosition()
+  const saved = store.get('windowPosition')
+
+  if (!saved || saved.x !== anchor.x || saved.y !== anchor.y) {
+    store.set('windowPosition', anchor)
+    if (saved) {
+      logWindowEvent('re-anchored-position', { from: saved, to: anchor })
+    }
+  }
+
+  return anchor
 }
 
 export function isPositionVisible(position: WindowPosition): boolean {
@@ -95,7 +134,7 @@ export function forceDesiredSize(): void {
 export function forceDesiredPosition(store: Store<StoreSchema>): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
 
-  const desired = store.get('windowPosition') ?? DESIRED_POSITION
+  const desired = resolveAnchoredPosition(store)
   const [currentX, currentY] = mainWindow.getPosition()
   const [currentWidth, currentHeight] = mainWindow.getSize()
   const state = getWindowState()
@@ -175,8 +214,10 @@ export function forceDesiredPosition(store: Store<StoreSchema>): void {
 export function createWindow(store: Store<StoreSchema>): BrowserWindow {
   const savedPosition = store.get('windowPosition')
 
-  const finalPosition =
-    savedPosition && isPositionVisible(savedPosition) ? savedPosition : getDefaultPosition()
+  // Revalida a posição salva contra a base do monitor atual: se a escala do
+  // Windows mudou enquanto o app estava fechado, reposiciona automaticamente
+  // (sem necessidade de reset manual).
+  const finalPosition = resolveAnchoredPosition(store)
 
   mainWindow = new BrowserWindow({
     title: 'Desktop Widget Clock',
@@ -232,12 +273,6 @@ function setupWindowEvents(store: Store<StoreSchema>): void {
     const state = getWindowState()
     logWindowEvent('ready-to-show', undefined, state)
     mainWindow.show()
-
-    const currentSavedPosition = store.get('windowPosition')
-    if (!currentSavedPosition) {
-      store.set('windowPosition', DESIRED_POSITION)
-      logWindowEvent('initial-position-saved', undefined, state)
-    }
 
     setTimeout(() => forceDesiredPosition(store), 100)
   })
@@ -386,10 +421,11 @@ export function cancelPendingOverlayRecoveries(): void {
 }
 
 export function setupDisplayEvents(store: Store<StoreSchema>): void {
-  const handleDisplayEvent = (event: string) => {
+  const handleDisplayEvent = (event: string, details?: Record<string, unknown>) => {
     if (!mainWindow) return
     const state = getWindowState()
     logAppEvent(event, {
+      ...details,
       position: state ? { x: state.x, y: state.y } : undefined,
       size: state ? { width: state.width, height: state.height } : undefined,
       isOnTop: state?.isOnTop,
@@ -399,5 +435,14 @@ export function setupDisplayEvents(store: Store<StoreSchema>): void {
 
   screen.on('display-added', () => handleDisplayEvent('display-added'))
   screen.on('display-removed', () => handleDisplayEvent('display-removed'))
-  screen.on('display-metrics-changed', () => handleDisplayEvent('display-metrics-changed'))
+  // Mudanças de escala/DPI do Windows chegam aqui com 'scaleFactor' em
+  // changedMetrics. A recuperação recalcula a âncora para a nova escala, então a
+  // janela volta a grudar na base dinamicamente (100%–300%).
+  screen.on('display-metrics-changed', (_event, display, changedMetrics) => {
+    handleDisplayEvent('display-metrics-changed', {
+      displayId: display.id,
+      scaleFactor: display.scaleFactor,
+      changedMetrics,
+    })
+  })
 }
